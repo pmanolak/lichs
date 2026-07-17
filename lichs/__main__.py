@@ -1,24 +1,22 @@
 import sys
-import os
+import webbrowser
 import berserk
-import chess
 from typing import Tuple
 from pathlib import Path
 from getpass import getpass
 
-from Game import Game
-from api_key import set_api
+from .Game import Game
 
 token_file = Path(__file__).parent.absolute() / "token.key"
+
 
 def set_token(key):
     token_file.write_text(key)
     print("The API-token was entered and saved.")
 
+
 def get_token():
     return getpass("Please enter your token: ")
-# def get_opt(opt):
-    # TODO Get option function
 
 
 def get_game_type_input() -> Tuple[int, int]:
@@ -36,21 +34,19 @@ def get_game_type_input() -> Tuple[int, int]:
                 try:
                     time, inc = time_inc.split(' ')
                     return int(time), int(inc)
-                except:
+                except ValueError:
                     print("Invalid input.")
 
 
 def main():
-    
     if len(sys.argv) == 2:
-            set_token(sys.argv[1])
+        set_token(sys.argv[1])
 
     if not token_file.exists():
         print("Please provide a token key")
         print("See the instructions in the Github README:")
         print("https://github.com/Cqsi/lichs#how-to-generate-a-personal-api-token")
         set_token(get_token())
-
 
     token = token_file.read_text()
     session = berserk.TokenSession(token)
@@ -74,18 +70,19 @@ def main():
     # Welcome text
     print("Welcome to Lichess in the Terminal (lichs)\n")
     print("Type either\nP to play\nH for help\nQ to quit ")
-    optFlag = True # Flag for options menu
-    while optFlag == True:
+    optFlag = True  # Flag for options menu
+    while optFlag:
         choice = input("Choose your option: ")
         if choice.lower() == "h":
             print("You will find help on the website that's opening")
-            os.system("start https://github.com/Cqsi/lichs/blob/master/README.md#usage")
+            webbrowser.open("https://github.com/Cqsi/lichs/blob/master/README.md#usage")
         elif choice.lower() == "q":
             print("Quitting...")
             sys.exit(0)
-        elif choice.lower() == "p": 
+        elif choice.lower() == "p":
             optFlag = False
-        else: print("Please choose from either P to play, H for help, or Q to quit")
+        else:
+            print("Please choose from either P to play, H for help, or Q to quit")
 
     time, increment = get_game_type_input()
 
@@ -96,18 +93,19 @@ def main():
         if event['type'] == 'gameStart':
             print("An opponent was found!")
 
-            isWhite = True
-            color = "Black" # We set the color to the opposite color of the player
+            # The gameStart event tells us which color we were assigned.
+            isWhite = event['game']['color'] == 'white'
+            color = "Black" if isWhite else "White"  # the opponent's color
 
-            if player_id != client.games.export(event['game']['id'])['players']['white']['user']['id']:
-                isWhite = False
-                color = "White"
+            if isWhite:
+                print("You're playing as white!")
+            else:
                 print("You're playing as black!")
                 print("White's turn...")
-            else:
-                print("You're playing as white!")
+
             game = Game(board, event['game']['id'], player_id, isWhite, color, time)
             game.start()
+
 
 if __name__ == "__main__":
     main()

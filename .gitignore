@@ -10,4 +10,5 @@ lichs/token.key
 
 # Others
 __pycache__
+.venv/
 

@@ -1,6 +1,7 @@
+import os
 import setuptools
 
-with open("docs\\PYPIREADME.md", "r") as f:
+with open(os.path.join("docs", "PYPIREADME.md"), "r") as f:
     long_description = f.read()
 
 with open("VERSION", "r") as f:
@@ -20,8 +21,8 @@ setuptools.setup(
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License"
     ],
-    python_requires='>=3.6',
-    install_requires=["python-chess", "berserk"],
+    python_requires='>=3.9',
+    install_requires=["chess>=1.11.0", "berserk>=0.14.0"],
     entry_points={
         "console_scripts": [
             "lichs=lichs.__main__:main"

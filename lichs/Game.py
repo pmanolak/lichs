@@ -4,8 +4,14 @@ import chess
 
 import os
 
-chess_board = chess.Board()
-runOnce = True
+from .render import render_board
+
+
+def format_clock(td):
+    """Format a timedelta as MM:SS."""
+    total_seconds = max(0, int(td.total_seconds()))
+    return "%02d:%02d" % (total_seconds // 60, total_seconds % 60)
+
 
 class Game(threading.Thread):
 
@@ -17,11 +23,13 @@ class Game(threading.Thread):
         self.player_id = player_id
         self.isWhite = isWhite
         self.color = color
-        self.clock = {'white': datetime.datetime(1970, 1, 1, 0, time, 0), 'black': datetime.datetime(1970, 1, 1, 0, time, 0)}
-        self.first_move = 2 # returns false after 2 moves have been made
+        self.chess_board = chess.Board()
+        # Seed the clock with the time control; the server sends authoritative
+        # times (as timedeltas) in every gameState after that.
+        start_time = datetime.timedelta(minutes=time)
+        self.clock = {'white': start_time, 'black': start_time}
         if self.isWhite:
             self.white_first_move()
-
 
     def run(self):
         for event in self.stream:
@@ -34,8 +42,6 @@ class Game(threading.Thread):
 
     def handle_state_change(self, game_state):
 
-        global chess_board
-
         if game_state.get(self.color[0].lower() + "draw") is True:
             self.handle_draw_state(game_state)
         elif game_state["status"] == "resign":
@@ -43,7 +49,7 @@ class Game(threading.Thread):
             os._exit(0)
 
         else:
-            # update time
+            # update time (berserk gives wtime/btime as timedeltas)
             self.clock['white'] = game_state['wtime']
             self.clock['black'] = game_state['btime']
 
@@ -54,44 +60,16 @@ class Game(threading.Thread):
                 print(self.color + " moved.")
                 print()
 
-                chess_board.push_uci(game_state["moves"].split()[-1])
+                self.chess_board.push_uci(game_state["moves"].split()[-1])
                 self.display_board()
                 print()
 
-                # decrement first move counter
-                if self.first_move:
-                    self.first_move -= 1
+                self.check_mate()
 
-                self.check_mate(chess_board)
-
-                # user move start time
-                move_start = datetime.datetime.now()
-
-                while(True):
-                    try:
-                        move = input("Make your move: ")
-                        if move.lower() == "resign":
-                            self.board.resign_game(self.game_id)
-                            print("You resigned the game!")
-                            print("Thanks for playing!")
-                            os._exit(0)
-                        else:
-                            self.board.make_move(self.game_id, chess_board.parse_san(move))
-                            chess_board.push_san(move)
-                            if self.first_move:
-                                self.first_move -= 1
-                            elif self.color[0] == 'b':
-                                self.clock['white'] -= datetime.datetime.now() - move_start
-                            else:
-                                self.clock['black'] -= datetime.datetime.now() - move_start
-                    except Exception as e:
-                        print("You can't make that move. Try again!")
-                        print(f"Reason: {e}") 
-                        continue
-                    break
+                self.prompt_move()
 
                 self.display_board()
-                self.check_mate(chess_board)
+                self.check_mate()
                 print()
                 print(self.color + "'s turn...")
 
@@ -108,58 +86,57 @@ class Game(threading.Thread):
         pass
 
     def white_first_move(self):
-
-        global chess_board
-
         self.display_board()
-        while(True):
+        self.prompt_move()
+        self.display_board()
+        print(self.color + "'s turn...")
+
+    def prompt_move(self):
+        """Read a legal move (or a resignation) from the user and play it."""
+        while True:
             try:
                 move = input("Make your move: ")
                 if move.lower() == "resign":
                     self.board.resign_game(self.game_id)
+                    print("You resigned the game!")
+                    print("Thanks for playing!")
                     os._exit(0)
                 else:
-                    self.board.make_move(self.game_id, chess_board.parse_san(move))
-                    chess_board.push_san(move)
+                    chess_move = self.chess_board.parse_san(move)
+                    self.board.make_move(self.game_id, chess_move.uci())
+                    self.chess_board.push(chess_move)
             except Exception as e:
                 print("You can't make that move. Try again!")
-                print(f'Reason: {e}')
+                print(f"Reason: {e}")
                 continue
             break
 
-        self.display_board()
-        self.first_move -= 1
-        print(self.color + "'s turn...")
+    def check_mate(self):
+        result = self.chess_board.result()
+        if result == "*":
+            return
+        if result == "1-0":
+            won = self.isWhite
+        elif result == "0-1":
+            won = not self.isWhite
+        else:  # "1/2-1/2"
+            won = None
 
-    def check_mate(self, chess_board):
-        if str(chess_board.result()) != "*":
-            if chess_board.result() == "1-0":
-                if self.isWhite:
-                    print("Congrats! You won by checkmating your opponent!")
-                else:
-                    print("You lose! Your opponent has checkmated you!")
-            elif chess_board.result() == "0-1":
-                if self.isWhite:
-                    print("You lose! Your opponent has checkmated you!")
-                else:
-                    print("Congrats! You won by checkmating your opponent!")
-            elif chess_board.result() == "1/2-1/2":
-                print("The game ended in a stalemate (draw)!")
+        if won is None:
+            print("The game ended in a stalemate (draw)!")
+        elif won:
+            print("Congrats! You won by checkmating your opponent!")
+        else:
+            print("You lose! Your opponent has checkmated you!")
 
-            print("Thanks for playing!")
-            os._exit(0)
+        print("Thanks for playing!")
+        os._exit(0)
 
     def display_board(self):
-        global chess_board
+        # highlight the most recent move, if there is one
+        last_move = self.chess_board.peek() if self.chess_board.move_stack else None
+        print(render_board(self.chess_board, self.isWhite, last_move))
 
-        # display the chess board, if the the player's color is black then flip the board 
-        if self.isWhite:
-            print(chess_board)
-        else:
-            print(chess_board.transform(chess.flip_vertical).transform(chess.flip_horizontal))
-
-        # print clock
-        print("[%02d:%02d : %02d:%02d]" % (self.clock['white'].minute, self.clock['white'].second, 
-                                           self.clock['black'].minute, self.clock['black'].second))
+        print("[%s : %s]" % (format_clock(self.clock['white']),
+                             format_clock(self.clock['black'])))
         print()
-
